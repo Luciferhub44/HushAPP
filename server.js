@@ -82,6 +82,15 @@ app.all('*', (req, res, next) => {
   });
 });
 
+// Handles Health Check
+app.get('/api/health', (req, res) => {
+  res.status(200).json({
+    status: 'success',
+    message: 'Server is healthy',
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Error Handler (Should be last piece of middleware)
 app.use(errorHandler);
 
