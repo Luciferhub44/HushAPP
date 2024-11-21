@@ -1,31 +1,23 @@
 const router = require('express').Router();
 const { protect } = require('../middleware/auth');
-const { AppError } = require('../middleware/error');
 const Chat = require('../models/Chat');
-const Booking = require('../models/Booking');
+const { AppError } = require('../middleware/error');
 const { upload } = require('../config/cloudinary');
-const { encryptMessage, decryptMessage } = require('../utils/encryption');
-const { generatePreview } = require('../utils/filePreview');
+const { io } = require('../server');
 
-// @desc    Get all chats for a user
-// @route   GET /api/chats
-// @access  Private
+// Get all chats for a user
 router.get('/', protect, async (req, res, next) => {
   try {
     const chats = await Chat.find({
-      $or: [
-        { user: req.user._id },
-        { artisan: req.user._id }
-      ]
+      participants: req.user.id,
+      isActive: true
     })
-    .populate('user', 'username avatar')
-    .populate('artisan', 'username artisanProfile.businessName avatar')
-    .populate('booking', 'service scheduledDate status')
-    .sort('-lastMessage');
+    .populate('participants', 'username profileImage userType')
+    .populate('lastMessage')
+    .sort('-updatedAt');
 
     res.status(200).json({
       status: 'success',
-      results: chats.length,
       data: { chats }
     });
   } catch (err) {
@@ -33,69 +25,41 @@ router.get('/', protect, async (req, res, next) => {
   }
 });
 
-// @desc    Get chat messages
-// @route   GET /api/chats/:chatId/messages
-// @access  Private
-router.get('/:chatId/messages', protect, async (req, res, next) => {
+// Start a new chat
+router.post('/start', protect, async (req, res, next) => {
   try {
-    const chat = await Chat.findOne({
-      _id: req.params.chatId,
-      $or: [
-        { user: req.user._id },
-        { artisan: req.user._id }
-      ]
-    }).select('+messages.encryptedContent');
-
-    if (!chat) {
-      return next(new AppError('Chat not found', 404));
-    }
-
-    // Decrypt messages
-    const decryptedMessages = chat.messages.map(msg => {
-      if (msg.encrypted && msg.encryptedContent) {
-        try {
-          msg.content = decryptMessage(msg.encryptedContent);
-        } catch (error) {
-          msg.content = 'Message decryption failed';
-        }
-      }
-      return msg;
-    });
-
-    res.status(200).json({
-      status: 'success',
-      data: { messages: decryptedMessages }
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// @desc    Create new chat for booking
-// @route   POST /api/chats/booking/:bookingId
-// @access  Private
-router.post('/booking/:bookingId', protect, async (req, res, next) => {
-  try {
-    const booking = await Booking.findById(req.params.bookingId);
-    if (!booking) {
-      return next(new AppError('Booking not found', 404));
-    }
+    const { recipientId, initialMessage, metadata } = req.body;
 
     // Check if chat already exists
-    let chat = await Chat.findOne({ booking: booking._id });
-    if (chat) {
-      return next(new AppError('Chat already exists for this booking', 400));
+    const existingChat = await Chat.findOne({
+      participants: { $all: [req.user.id, recipientId] },
+      isActive: true
+    });
+
+    if (existingChat) {
+      return res.status(200).json({
+        status: 'success',
+        data: { chat: existingChat }
+      });
     }
 
     // Create new chat
-    chat = await Chat.create({
-      booking: booking._id,
-      user: booking.user,
-      artisan: booking.artisan,
+    const chat = await Chat.create({
+      participants: [req.user.id, recipientId],
       messages: [{
-        sender: req.user._id,
-        content: req.body.message
-      }]
+        sender: req.user.id,
+        content: initialMessage
+      }],
+      metadata
+    });
+
+    // Set last message
+    chat.lastMessage = chat.messages[0];
+    await chat.save();
+
+    // Notify recipient
+    io.to(recipientId.toString()).emit('newChat', {
+      chat: await chat.populate('participants', 'username profileImage userType')
     });
 
     res.status(201).json({
@@ -107,276 +71,116 @@ router.post('/booking/:bookingId', protect, async (req, res, next) => {
   }
 });
 
-// Add this new route for file uploads
-router.post('/:chatId/upload', protect, upload.single('file'), async (req, res, next) => {
+// Send message in chat
+router.post('/:chatId/messages', protect, upload.array('attachments', 5), async (req, res, next) => {
   try {
+    const { content } = req.body;
     const chat = await Chat.findOne({
       _id: req.params.chatId,
-      $or: [
-        { user: req.user._id },
-        { artisan: req.user._id }
-      ]
+      participants: req.user.id,
+      isActive: true
     });
 
     if (!chat) {
       return next(new AppError('Chat not found', 404));
     }
 
-    if (!req.file) {
-      return next(new AppError('Please upload a file', 400));
-    }
-
-    const preview = generatePreview(req.file);
+    // Create message with attachments if any
     const message = {
-      sender: req.user._id,
-      content: req.body.message || `Shared a ${preview.type}`,
-      attachments: [{
-        type: preview.type,
-        url: preview.url,
-        public_id: req.file.filename,
-        filename: req.file.originalname,
-        size: req.file.size,
-        mimeType: req.file.mimetype
-      }],
-      preview
+      sender: req.user.id,
+      content,
+      attachments: req.files ? req.files.map(file => ({
+        type: file.mimetype.startsWith('image/') ? 'image' : 'document',
+        url: file.path,
+        thumbnail: file.mimetype.startsWith('image/') ? file.path : undefined
+      })) : []
     };
 
-    if (req.body.expirationHours) {
-      message.expiresAt = new Date(Date.now() + req.body.expirationHours * 60 * 60 * 1000);
-    }
-
     chat.messages.push(message);
-    chat.lastMessage = new Date();
+    chat.lastMessage = message;
     await chat.save();
 
-    // Emit socket event with preview
-    io.to(chat.user.toString())
-      .to(chat.artisan.toString())
-      .emit('newMessage', {
-        chatId: chat._id,
-        message: chat.messages[chat.messages.length - 1]
-      });
-
-    res.status(200).json({
-      status: 'success',
-      data: { message: chat.messages[chat.messages.length - 1] }
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// Add this route for setting message expiration
-router.patch('/:chatId/messages/:messageId/expiration', protect, async (req, res, next) => {
-  try {
-    const chat = await Chat.findOne({
-      _id: req.params.chatId,
-      $or: [
-        { user: req.user._id },
-        { artisan: req.user._id }
-      ]
-    });
-
-    if (!chat) {
-      return next(new AppError('Chat not found', 404));
-    }
-
-    const message = chat.messages.id(req.params.messageId);
-    if (!message) {
-      return next(new AppError('Message not found', 404));
-    }
-
-    // Only message sender can set expiration
-    if (message.sender.toString() !== req.user._id.toString()) {
-      return next(new AppError('Not authorized to modify this message', 403));
-    }
-
-    message.expiresAt = new Date(Date.now() + req.body.expirationHours * 60 * 60 * 1000);
-    await chat.save();
-
-    res.status(200).json({
-      status: 'success',
-      data: { message }
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// @desc    Add reaction to message
-// @route   POST /api/chats/:chatId/messages/:messageId/react
-// @access  Private
-router.post('/:chatId/messages/:messageId/react', protect, async (req, res, next) => {
-  try {
-    const chat = await Chat.findOne({
-      _id: req.params.chatId,
-      $or: [
-        { user: req.user._id },
-        { artisan: req.user._id }
-      ]
-    });
-
-    if (!chat) {
-      return next(new AppError('Chat not found', 404));
-    }
-
-    const message = chat.messages.id(req.params.messageId);
-    if (!message) {
-      return next(new AppError('Message not found', 404));
-    }
-
-    // Remove existing reaction from same user if exists
-    const existingReactionIndex = message.reactions.findIndex(
-      r => r.user.toString() === req.user._id.toString()
-    );
-
-    if (existingReactionIndex > -1) {
-      message.reactions.splice(existingReactionIndex, 1);
-    }
-
-    // Add new reaction
-    message.reactions.push({
-      user: req.user._id,
-      emoji: req.body.emoji
-    });
-
-    await chat.save();
-
-    // Emit reaction update
-    io.to(chat.user.toString())
-      .to(chat.artisan.toString())
-      .emit('messageReaction', {
-        chatId: chat._id,
-        messageId: message._id,
-        reaction: {
-          user: req.user._id,
-          emoji: req.body.emoji
-        }
-      });
-
-    res.status(200).json({
-      status: 'success',
-      data: { message }
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// @desc    Edit message
-// @route   PATCH /api/chats/:chatId/messages/:messageId
-// @access  Private
-router.patch('/:chatId/messages/:messageId', protect, async (req, res, next) => {
-  try {
-    const chat = await Chat.findOne({
-      _id: req.params.chatId,
-      $or: [
-        { user: req.user._id },
-        { artisan: req.user._id }
-      ]
-    });
-
-    if (!chat) {
-      return next(new AppError('Chat not found', 404));
-    }
-
-    const message = chat.messages.id(req.params.messageId);
-    if (!message) {
-      return next(new AppError('Message not found', 404));
-    }
-
-    // Check if user is the message sender
-    if (message.sender.toString() !== req.user._id.toString()) {
-      return next(new AppError('Not authorized to edit this message', 403));
-    }
-
-    // Check if message is too old to edit (e.g., 24 hours)
-    const messageAge = Date.now() - message.createdAt.getTime();
-    if (messageAge > 24 * 60 * 60 * 1000) {
-      return next(new AppError('Message is too old to edit', 400));
-    }
-
-    // Store original content in edit history
-    message.editHistory.push({
-      content: message.content,
-      editedAt: new Date()
-    });
-
-    // Update message content
-    if (req.body.content) {
-      if (message.encrypted) {
-        message.encryptedContent = encryptMessage(req.body.content);
-        message.content = 'Encrypted message';
-      } else {
-        message.content = req.body.content;
-      }
-    }
-
-    message.edited = true;
-    await chat.save();
-
-    // Emit message update
-    io.to(chat.user.toString())
-      .to(chat.artisan.toString())
-      .emit('messageEdited', {
-        chatId: chat._id,
-        messageId: message._id,
-        message
-      });
-
-    res.status(200).json({
-      status: 'success',
-      data: { message }
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// @desc    Remove reaction from message
-// @route   DELETE /api/chats/:chatId/messages/:messageId/react
-// @access  Private
-router.delete('/:chatId/messages/:messageId/react', protect, async (req, res, next) => {
-  try {
-    const chat = await Chat.findOne({
-      _id: req.params.chatId,
-      $or: [
-        { user: req.user._id },
-        { artisan: req.user._id }
-      ]
-    });
-
-    if (!chat) {
-      return next(new AppError('Chat not found', 404));
-    }
-
-    const message = chat.messages.id(req.params.messageId);
-    if (!message) {
-      return next(new AppError('Message not found', 404));
-    }
-
-    // Remove reaction
-    const reactionIndex = message.reactions.findIndex(
-      r => r.user.toString() === req.user._id.toString()
-    );
-
-    if (reactionIndex > -1) {
-      message.reactions.splice(reactionIndex, 1);
-      await chat.save();
-
-      // Emit reaction removal
-      io.to(chat.user.toString())
-        .to(chat.artisan.toString())
-        .emit('messageReactionRemoved', {
+    // Notify other participants
+    chat.participants
+      .filter(p => p.toString() !== req.user.id.toString())
+      .forEach(participantId => {
+        io.to(participantId.toString()).emit('newMessage', {
           chatId: chat._id,
-          messageId: message._id,
-          userId: req.user._id
+          message
         });
+      });
+
+    res.status(201).json({
+      status: 'success',
+      data: { message }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Mark messages as read
+router.patch('/:chatId/read', protect, async (req, res, next) => {
+  try {
+    const chat = await Chat.findOne({
+      _id: req.params.chatId,
+      participants: req.user.id
+    });
+
+    if (!chat) {
+      return next(new AppError('Chat not found', 404));
+    }
+
+    // Mark unread messages as read
+    const updatedMessages = chat.messages.map(msg => {
+      if (msg.sender.toString() !== req.user.id.toString() && 
+          !msg.readBy.some(read => read.user.toString() === req.user.id.toString())) {
+        msg.readBy.push({
+          user: req.user.id,
+          readAt: new Date()
+        });
+      }
+      return msg;
+    });
+
+    chat.messages = updatedMessages;
+    await chat.save();
+
+    res.status(200).json({
+      status: 'success',
+      data: { chat }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get chat history
+router.get('/:chatId/messages', protect, async (req, res, next) => {
+  try {
+    const { page = 1, limit = 50 } = req.query;
+    const chat = await Chat.findOne({
+      _id: req.params.chatId,
+      participants: req.user.id
+    })
+    .populate('messages.sender', 'username profileImage')
+    .slice('messages', [(page - 1) * limit, limit])
+    .sort('-messages.createdAt');
+
+    if (!chat) {
+      return next(new AppError('Chat not found', 404));
     }
 
     res.status(200).json({
       status: 'success',
-      data: { message }
+      data: {
+        messages: chat.messages,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total: chat.messages.length
+        }
+      }
     });
   } catch (err) {
     next(err);

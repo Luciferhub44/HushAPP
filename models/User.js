@@ -1,74 +1,132 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
+const locationSchema = new mongoose.Schema({
+  type: {
+    type: String,
+    enum: ['Point'],
+    default: 'Point'
+  },
+  coordinates: {
+    type: [Number],
+    required: true
+  },
+  address: {
+    type: String,
+    required: true
+  },
+  city: {
+    type: String,
+    required: true
+  },
+  state: {
+    type: String,
+    required: true
+  }
+});
+
+const artisanProfileSchema = new mongoose.Schema({
+  businessName: {
+    type: String,
+    required: [true, 'Business name is required']
+  },
+  specialty: [{
+    type: String,
+    required: [true, 'At least one specialty is required']
+  }],
+  experience: {
+    type: Number,
+    required: [true, 'Years of experience is required']
+  },
+  bio: {
+    type: String,
+    required: [true, 'Bio is required']
+  },
+  rating: {
+    type: Number,
+    default: 0,
+    min: 0,
+    max: 5
+  },
+  totalReviews: {
+    type: Number,
+    default: 0
+  },
+  location: {
+    type: locationSchema,
+    required: [true, 'Location is required']
+  },
+  portfolio: [{
+    title: String,
+    description: String,
+    imageUrl: String,
+    createdAt: {
+      type: Date,
+      default: Date.now
+    }
+  }]
+});
+
 const userSchema = new mongoose.Schema({
   username: {
     type: String,
-    required: true,
-    unique: true
+    required: [true, 'Username is required'],
+    unique: true,
+    trim: true,
+    minlength: 3
   },
   email: {
     type: String,
-    required: true,
-    unique: true
+    required: [true, 'Email is required'],
+    unique: true,
+    lowercase: true,
+    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please provide a valid email']
   },
   password: {
     type: String,
-    required: true
+    required: [true, 'Password is required'],
+    minlength: 8,
+    select: false
+  },
+  phoneNumber: {
+    type: String,
+    required: [true, 'Phone number is required']
   },
   userType: {
     type: String,
     enum: ['user', 'artisan'],
     required: true
   },
-  phoneNumber: {
-    type: String,
-    required: true
-  },
   artisanProfile: {
-    type: {
-      businessName: String,
-      specialty: [String],
-      experience: Number,
-      bio: String,
-      location: {
-        type: {
-          coordinates: {
-            type: [Number],
-            required: function() {
-              return this.userType === 'artisan';
-            }
-          },
-          address: {
-            type: String,
-            required: function() {
-              return this.userType === 'artisan';
-            }
-          },
-          city: {
-            type: String,
-            required: function() {
-              return this.userType === 'artisan';
-            }
-          },
-          state: {
-            type: String,
-            required: function() {
-              return this.userType === 'artisan';
-            }
-          }
-        },
-        required: function() {
-          return this.userType === 'artisan';
-        }
-      }
-    },
+    type: artisanProfileSchema,
     required: function() {
       return this.userType === 'artisan';
     }
+  },
+  profileImage: {
+    type: String,
+    default: 'default.jpg'
+  },
+  isVerified: {
+    type: Boolean,
+    default: false
+  },
+  verificationToken: String,
+  verificationTokenExpires: Date,
+  resetPasswordToken: String,
+  resetPasswordExpires: Date,
+  createdAt: {
+    type: Date,
+    default: Date.now
+  },
+  lastActive: {
+    type: Date,
+    default: Date.now
   }
 }, {
-  timestamps: true
+  timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
 });
 
 userSchema.index({ 'artisanProfile.location': '2dsphere' });

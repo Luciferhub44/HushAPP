@@ -204,4 +204,70 @@ router.post('/:id/reviews', protect, async (req, res, next) => {
   }
 });
 
+router.get('/search', async (req, res, next) => {
+  try {
+    const {
+      query,
+      category,
+      minPrice,
+      maxPrice,
+      sortBy,
+      artisanRating,
+      inStock,
+      page = 1,
+      limit = 10
+    } = req.query;
+
+    const searchQuery = {
+      status: 'active'
+    };
+
+    // Text search
+    if (query) {
+      searchQuery.$text = { $search: query };
+    }
+
+    // Filters
+    if (category) searchQuery.category = category;
+    if (minPrice || maxPrice) {
+      searchQuery.price = {};
+      if (minPrice) searchQuery.price.$gte = parseFloat(minPrice);
+      if (maxPrice) searchQuery.price.$lte = parseFloat(maxPrice);
+    }
+    if (inStock === 'true') searchQuery.stock = { $gt: 0 };
+    if (artisanRating) {
+      searchQuery['artisan.rating'] = { $gte: parseFloat(artisanRating) };
+    }
+
+    const sortOptions = {
+      'price_asc': { price: 1 },
+      'price_desc': { price: -1 },
+      'rating': { rating: -1 },
+      'newest': { createdAt: -1 }
+    };
+
+    const products = await Product.find(searchQuery)
+      .populate('artisan', 'username artisanProfile.rating')
+      .sort(sortOptions[sortBy] || { createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit);
+
+    const total = await Product.countDocuments(searchQuery);
+
+    res.status(200).json({
+      status: 'success',
+      results: products.length,
+      pagination: {
+        total,
+        pages: Math.ceil(total / limit),
+        page: parseInt(page),
+        limit: parseInt(limit)
+      },
+      data: { products }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

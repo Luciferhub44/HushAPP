@@ -1,86 +1,71 @@
 const mongoose = require('mongoose');
 
+const customizationOptionSchema = new mongoose.Schema({
+  name: String,
+  options: [String]
+}, { _id: false });
+
 const productSchema = new mongoose.Schema({
   artisan: {
-    type: mongoose.Schema.ObjectId,
+    type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: [true, 'Product must belong to an artisan']
+    required: true
   },
   name: {
     type: String,
-    required: [true, 'Product must have a name'],
-    trim: true,
-    maxlength: [100, 'Product name cannot exceed 100 characters']
+    required: [true, 'Product name is required'],
+    trim: true
   },
   description: {
     type: String,
-    required: [true, 'Product must have a description'],
-    maxlength: [500, 'Description cannot exceed 500 characters']
+    required: [true, 'Product description is required']
   },
   category: {
     type: String,
-    required: [true, 'Product must have a category'],
-    enum: ['Plumbing', 'Electrical', 'Carpentry', 'Painting', 'Cleaning', 'Landscaping', 'Other']
+    required: [true, 'Product category is required'],
+    enum: ['Furniture', 'Clothing', 'Art', 'Jewelry', 'Home Decor', 'Other']
   },
   price: {
     type: Number,
-    required: [true, 'Product must have a price']
-  },
-  priceUnit: {
-    type: String,
-    enum: ['fixed', 'hourly', 'daily'],
-    default: 'fixed'
+    required: [true, 'Product price is required'],
+    min: 0
   },
   images: [{
-    url: String,
-    public_id: String
+    type: String,
+    required: [true, 'Product must have at least one image']
   }],
-  availability: {
+  stock: {
+    type: Number,
+    required: true,
+    min: 0,
+    default: 1
+  },
+  customizable: {
     type: Boolean,
-    default: true
+    default: false
+  },
+  customizationOptions: {
+    type: [customizationOptionSchema],
+    validate: [{
+      validator: function(options) {
+        return !this.customizable || (options && options.length > 0);
+      },
+      message: 'Customization options are required when product is customizable'
+    }]
   },
   rating: {
     type: Number,
     default: 0,
-    min: [0, 'Rating must be above 0'],
-    max: [5, 'Rating must be below 5'],
-    set: val => Math.round(val * 10) / 10 // Round to 1 decimal place
+    min: 0,
+    max: 5
   },
-  numReviews: {
+  totalReviews: {
     type: Number,
     default: 0
   },
-  reviews: [{
-    user: {
-      type: mongoose.Schema.ObjectId,
-      ref: 'User',
-      required: true
-    },
-    rating: {
-      type: Number,
-      required: true,
-      min: 1,
-      max: 5
-    },
-    review: String,
-    createdAt: {
-      type: Date,
-      default: Date.now
-    }
-  }],
-  features: [String],
-  estimatedDuration: {
-    value: Number,
-    unit: {
-      type: String,
-      enum: ['minutes', 'hours', 'days'],
-      default: 'hours'
-    }
-  },
-  tags: [String],
   status: {
     type: String,
-    enum: ['active', 'inactive', 'archived'],
+    enum: ['active', 'inactive', 'out_of_stock'],
     default: 'active'
   }
 }, {
@@ -89,61 +74,13 @@ const productSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
-// Indexes
 productSchema.index({ artisan: 1, category: 1 });
 productSchema.index({ name: 'text', description: 'text' });
-productSchema.index({ price: 1 });
-productSchema.index({ rating: -1 });
 
-// Virtual populate bookings
-productSchema.virtual('bookings', {
-  ref: 'Booking',
-  foreignField: 'product',
-  localField: '_id'
-});
-
-// Calculate average rating
-productSchema.statics.calculateAverageRating = async function(productId) {
-  const stats = await this.aggregate([
-    {
-      $match: { _id: productId }
-    },
-    {
-      $unwind: '$reviews'
-    },
-    {
-      $group: {
-        _id: '$_id',
-        numReviews: { $sum: 1 },
-        avgRating: { $avg: '$reviews.rating' }
-      }
-    }
-  ]);
-
-  if (stats.length > 0) {
-    await this.findByIdAndUpdate(productId, {
-      numReviews: stats[0].numReviews,
-      rating: stats[0].avgRating
-    });
-  } else {
-    await this.findByIdAndUpdate(productId, {
-      numReviews: 0,
-      rating: 0
-    });
+productSchema.pre('save', function(next) {
+  if (!this.images || this.images.length === 0) {
+    next(new Error('Product must have at least one image'));
   }
-};
-
-// Call calculateAverageRating after save
-productSchema.post('save', function() {
-  this.constructor.calculateAverageRating(this._id);
-});
-
-// Middleware to populate artisan info
-productSchema.pre(/^find/, function(next) {
-  this.populate({
-    path: 'artisan',
-    select: 'username artisanProfile.businessName artisanProfile.rating'
-  });
   next();
 });
 
