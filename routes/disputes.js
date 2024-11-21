@@ -1,35 +1,44 @@
 const router = require('express').Router();
-const { protect } = require('../middleware/auth');
+const { protect, restrictTo } = require('../middleware/auth');
 const disputeResolution = require('../services/disputeResolution');
 const { AppError } = require('../middleware/error');
 const { upload } = require('../config/cloudinary');
-const { validateDispute } = require('../validation/disputeValidation');
+const { 
+  validateDispute, 
+  validateDisputeMessage, 
+  validateDisputeResolution 
+} = require('../validation/disputeValidation');
+const Dispute = require('../models/Dispute');
 
 // Create new dispute
-router.post('/', protect, upload.array('evidence', 5), validateDispute, async (req, res, next) => {
-  try {
-    const { orderId, type, description } = req.body;
-    const evidence = req.files ? req.files.map(file => ({
-      type: file.mimetype.startsWith('image/') ? 'image' : 'document',
-      url: file.path,
-      description: file.originalname
-    })) : [];
+router.post('/', 
+  protect, 
+  upload.array('evidence', 5), 
+  validateDispute, 
+  async (req, res, next) => {
+    try {
+      const { orderId, type, description } = req.body;
+      const evidence = req.files ? req.files.map(file => ({
+        type: file.mimetype.startsWith('image/') ? 'image' : 'document',
+        url: file.path,
+        description: file.originalname
+      })) : [];
 
-    const dispute = await disputeResolution.initiateDispute(
-      orderId,
-      req.user.id,
-      type,
-      description,
-      evidence
-    );
+      const dispute = await disputeResolution.initiateDispute(
+        orderId,
+        req.user.id,
+        type,
+        description,
+        evidence
+      );
 
-    res.status(201).json({
-      status: 'success',
-      data: { dispute }
-    });
-  } catch (err) {
-    next(err);
-  }
+      res.status(201).json({
+        status: 'success',
+        data: { dispute }
+      });
+    } catch (err) {
+      next(err);
+    }
 });
 
 // Get user's disputes
@@ -103,28 +112,32 @@ router.get('/:id', protect, async (req, res, next) => {
 });
 
 // Add message to dispute
-router.post('/:id/messages', protect, upload.array('attachments', 3), async (req, res, next) => {
-  try {
-    const { message } = req.body;
-    const attachments = req.files ? req.files.map(file => ({
-      type: file.mimetype.startsWith('image/') ? 'image' : 'document',
-      url: file.path
-    })) : [];
+router.post('/:id/messages', 
+  protect, 
+  upload.array('attachments', 3),
+  validateDisputeMessage,
+  async (req, res, next) => {
+    try {
+      const { message } = req.body;
+      const attachments = req.files ? req.files.map(file => ({
+        type: file.mimetype.startsWith('image/') ? 'image' : 'document',
+        url: file.path
+      })) : [];
 
-    const updatedDispute = await disputeResolution.addDisputeMessage(
-      req.params.id,
-      req.user.id,
-      message,
-      attachments
-    );
+      const updatedDispute = await disputeResolution.addDisputeMessage(
+        req.params.id,
+        req.user.id,
+        message,
+        attachments
+      );
 
-    res.status(200).json({
-      status: 'success',
-      data: { dispute: updatedDispute }
-    });
-  } catch (err) {
-    next(err);
-  }
+      res.status(200).json({
+        status: 'success',
+        data: { dispute: updatedDispute }
+      });
+    } catch (err) {
+      next(err);
+    }
 });
 
 // Escalate dispute
@@ -146,22 +159,26 @@ router.post('/:id/escalate', protect, async (req, res, next) => {
 });
 
 // Resolve dispute (Admin only)
-router.post('/:id/resolve', protect, restrictTo('admin'), async (req, res, next) => {
-  try {
-    const { resolution } = req.body;
-    const dispute = await disputeResolution.resolveDispute(
-      req.params.id,
-      resolution,
-      req.user.id
-    );
+router.post('/:id/resolve', 
+  protect, 
+  restrictTo('admin'), 
+  validateDisputeResolution,
+  async (req, res, next) => {
+    try {
+      const { resolution } = req.body;
+      const dispute = await disputeResolution.resolveDispute(
+        req.params.id,
+        resolution,
+        req.user.id
+      );
 
-    res.status(200).json({
-      status: 'success',
-      data: { dispute }
-    });
-  } catch (err) {
-    next(err);
-  }
+      res.status(200).json({
+        status: 'success',
+        data: { dispute }
+      });
+    } catch (err) {
+      next(err);
+    }
 });
 
 module.exports = router; 

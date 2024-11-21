@@ -25,6 +25,7 @@ const chatRoutes = require('./routes/chats');
 const notificationRoutes = require('./routes/notifications');
 const paymentRoutes = require('./routes/payments');
 const payoutRoutes = require('./routes/payouts');
+const disputeRoutes = require('./routes/disputes');
 
 const app = express();
 
@@ -84,7 +85,29 @@ app.use(cors({
 // Compression middleware
 app.use(compression());
 
-// Health Check Route
+// Add a base API route and group all routes under it
+const apiRouter = express.Router();
+app.use('/api', apiRouter);
+
+// Mount all routes on the API router
+apiRouter.use('/users', userRoutes);
+apiRouter.use('/bookings', bookingRoutes);
+apiRouter.use('/chats', chatRoutes);
+apiRouter.use('/notifications', notificationRoutes);
+apiRouter.use('/payments', paymentRoutes);
+apiRouter.use('/payouts', payoutRoutes);
+apiRouter.use('/disputes', disputeRoutes); // Add the disputes route
+
+// Add a root route handler
+app.get('/', (req, res) => {
+  res.status(200).json({
+    status: 'success',
+    message: 'Welcome to Hush API',
+    version: '1.0.0'
+  });
+});
+
+// Health check route should be at root level
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'success',
@@ -93,14 +116,6 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
-
-// Routes
-app.use('/api/users', userRoutes);
-app.use('/api/bookings', bookingRoutes);
-app.use('/api/chats', chatRoutes);
-app.use('/api/notifications', notificationRoutes);
-app.use('/api/payments', paymentRoutes);
-app.use('/api/payouts', payoutRoutes);
 
 // 404 handler comes after routes
 app.all('*', (req, res, next) => {
