@@ -1,49 +1,34 @@
-const socketIo = require('socket.io');
-const jwt = require('jsonwebtoken');
-const User = require('../models/User');
+const socketIO = require('socket.io');
+let io = null;
 
-const socketInit = (server) => {
-  const io = socketIo(server, {
+const initializeSocket = (server) => {
+  io = socketIO(server, {
     cors: {
-      origin: process.env.NODE_ENV === 'production' 
-        ? process.env.CORS_ORIGIN 
-        : '*',
-      methods: ['GET', 'POST']
+      origin: process.env.FRONTEND_URL,
+      methods: ["GET", "POST"],
+      credentials: true
     }
   });
 
-  // Socket.IO middleware for authentication
-  io.use(async (socket, next) => {
-    try {
-      const token = socket.handshake.auth.token;
-      if (!token) {
-        return next(new Error('Authentication error'));
-      }
+  io.on('connection', (socket) => {
+    console.log('Client connected:', socket.id);
 
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      const user = await User.findById(decoded.id);
-      
-      if (!user) {
-        return next(new Error('User not found'));
-      }
-
-      socket.user = user;
-      next();
-    } catch (error) {
-      next(new Error('Authentication error'));
-    }
-  });
-
-  // Socket.IO error handling
-  io.on('connect_error', (err) => {
-    console.error('Socket.IO connection error:', err);
-  });
-
-  io.on('error', (err) => {
-    console.error('Socket.IO error:', err);
+    socket.on('disconnect', () => {
+      console.log('Client disconnected:', socket.id);
+    });
   });
 
   return io;
 };
 
-module.exports = socketInit; 
+const getIO = () => {
+  if (!io) {
+    throw new Error('Socket.io not initialized');
+  }
+  return io;
+};
+
+module.exports = {
+  initializeSocket,
+  getIO
+}; 

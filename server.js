@@ -152,8 +152,8 @@ const connectDB = require('./config/database');
 // Create HTTP server first
 const server = require('http').createServer(app);
 
-// Initialize Socket.IO
-const io = socketInit(server);
+// Initialize Socket.IO after server creation
+const io = socketInit.initializeSocket(server);
 
 // Initialize socket handler
 const SocketHandler = require('./utils/socketHandler');
