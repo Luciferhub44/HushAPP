@@ -16,6 +16,7 @@ const securityMiddleware = require('./middleware/security');
 const corsMiddleware = require('./middleware/cors');
 const rateLimiter = require('./middleware/rateLimiter');
 const logger = require('./middleware/logger');
+const socketInit = require('./utils/socketInit');
 
 // Route imports
 const userRoutes = require('./routes/users');
@@ -137,53 +138,15 @@ const connectDB = require('./config/database');
 const server = require('http').createServer(app);
 
 // Initialize Socket.IO
-const io = socketIo(server, {
-  cors: {
-    origin: process.env.NODE_ENV === 'production' 
-      ? process.env.CORS_ORIGIN 
-      : '*',
-    methods: ['GET', 'POST']
-  }
-});
+const io = socketInit(server);
 
-// Socket.IO middleware for authentication
-io.use(async (socket, next) => {
-  try {
-    const token = socket.handshake.auth.token;
-    if (!token) {
-      return next(new Error('Authentication error'));
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.id);
-    
-    if (!user) {
-      return next(new Error('User not found'));
-    }
-
-    socket.user = user;
-    next();
-  } catch (error) {
-    next(new Error('Authentication error'));
-  }
-});
-
-// Socket.IO error handling
-io.on('connect_error', (err) => {
-  console.error('Socket.IO connection error:', err);
-});
-
-io.on('error', (err) => {
-  console.error('Socket.IO error:', err);
-});
-
-// Add this after creating the io instance
+// Initialize socket handler
 const SocketHandler = require('./utils/socketHandler');
 const socketHandler = new SocketHandler(io);
 socketHandler.initialize();
 
-// Move this to the end of the file
-module.exports = { io, app, server };
+// Export only what's needed
+module.exports = { app, server };
 
 // Start the server
 const startServer = async () => {
