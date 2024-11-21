@@ -27,6 +27,9 @@ const payoutRoutes = require('./routes/payouts');
 
 const app = express();
 
+// Trust proxy - Add this before other middleware
+app.set('trust proxy', 1);
+
 // Security Middleware
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
@@ -42,7 +45,11 @@ app.use(rateLimiter);
 const limiter = rateLimit({
   max: 100, // Limit each IP to 100 requests per windowMs
   windowMs: 60 * 60 * 1000, // 1 hour
-  message: 'Too many requests from this IP, please try again in an hour!'
+  message: 'Too many requests from this IP, please try again in an hour!',
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  // Add trusted proxy configuration
+  trustProxy: true
 });
 app.use('/api', limiter);
 
@@ -57,10 +64,13 @@ app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 
 // Enable CORS with configuration
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
+  origin: process.env.NODE_ENV === 'production' 
+    ? process.env.CORS_ORIGIN 
+    : '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true
+  credentials: true,
+  exposedHeaders: ['set-cookie']
 }));
 
 // Compression middleware
