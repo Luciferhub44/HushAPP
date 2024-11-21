@@ -7,9 +7,7 @@ yarn-error.log
 # Environment variables
 .env
 .env.local
-.env.development
-.env.test
-.env.production
+.env.*.local
 
 # Build output
 dist/
@@ -19,19 +17,23 @@ build/
 logs/
 *.log
 
-# System Files
-.DS_Store
-Thumbs.db
-
-# IDE
+# IDE and editor files
 .idea/
 .vscode/
 *.swp
 *.swo
+.DS_Store
 
-# Testing
+# Upload directories
+uploads/
+public/uploads/
+
+# Test coverage
 coverage/
 
-# Temp files
+# Temporary files
 tmp/
 temp/
+
+# Production files
+.env.production
