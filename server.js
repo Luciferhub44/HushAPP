@@ -83,6 +83,16 @@ app.use(cors({
 // Compression middleware
 app.use(compression());
 
+// Health Check Route
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'success',
+    message: 'Server is healthy',
+    environment: process.env.NODE_ENV,
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Routes
 app.use('/api/users', userRoutes);
 app.use('/api/bookings', bookingRoutes);
@@ -91,20 +101,11 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/payouts', payoutRoutes);
 
-// Handle undefined routes
+// 404 handler comes after routes
 app.all('*', (req, res, next) => {
   res.status(404).json({
     status: 'error',
     message: `Can't find ${req.originalUrl} on this server!`
-  });
-});
-
-// Handles Health Check
-app.get('/api/health', (req, res) => {
-  res.status(200).json({
-    status: 'success',
-    message: 'Server is healthy',
-    timestamp: new Date().toISOString()
   });
 });
 
@@ -132,15 +133,15 @@ const gracefulShutdown = (server) => {
 // Database connection with retry logic
 const connectDB = require('./config/database');
 
-connectDB();
-
-// Create HTTP server
+// Create HTTP server first
 const server = require('http').createServer(app);
 
 // Initialize Socket.IO
 const io = socketIo(server, {
   cors: {
-    origin: process.env.CORS_ORIGIN || '*',
+    origin: process.env.NODE_ENV === 'production' 
+      ? process.env.CORS_ORIGIN 
+      : '*',
     methods: ['GET', 'POST']
   }
 });
@@ -167,18 +168,56 @@ io.use(async (socket, next) => {
   }
 });
 
+// Socket.IO error handling
+io.on('connect_error', (err) => {
+  console.error('Socket.IO connection error:', err);
+});
+
+io.on('error', (err) => {
+  console.error('Socket.IO error:', err);
+});
+
 // Add this after creating the io instance
 const SocketHandler = require('./utils/socketHandler');
 const socketHandler = new SocketHandler(io);
 socketHandler.initialize();
 
-// Update the server start to use the HTTP server instead of app
-const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
-}).on('error', (err) => {
-  console.error('Server failed to start:', err);
-});
+// Move this to the end of the file
+module.exports = { io, app, server };
+
+// Start the server
+const startServer = async () => {
+  try {
+    // Connect to database first
+    const dbConnected = await connectDB();
+    if (!dbConnected && process.env.NODE_ENV === 'production') {
+      throw new Error('Database connection failed');
+    }
+
+    // Start server only after successful DB connection
+    const PORT = process.env.PORT || 5000;
+    server.listen(PORT, () => {
+      console.log(`
+        Server Started Successfully
+        -------------------------
+        Port: ${PORT}
+        Environment: ${process.env.NODE_ENV}
+        MongoDB Host: ${mongoose.connection.host}
+        Date: ${new Date().toISOString()}
+        -------------------------
+      `);
+    }).on('error', (err) => {
+      console.error('Server failed to start:', err);
+      process.exit(1);
+    });
+
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
+};
+
+startServer();
 
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (err) => {
@@ -204,16 +243,4 @@ process.on('SIGTERM', () => {
 process.on('SIGINT', () => {
   console.log('👋 SIGINT RECEIVED. Shutting down gracefully');
   gracefulShutdown(server);
-});
-
-// Export io instance for use in other files
-module.exports.io = io;
-
-// Socket.IO error handling
-io.on('connect_error', (err) => {
-  console.error('Socket.IO connection error:', err);
-});
-
-io.on('error', (err) => {
-  console.error('Socket.IO error:', err);
 });
