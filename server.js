@@ -27,6 +27,13 @@ const payoutRoutes = require('./routes/payouts');
 
 const app = express();
 
+// Add this at the very top, before any other code
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION! 💥 Shutting down...');
+  console.error(err.name, err.message, err.stack);
+  process.exit(1);
+});
+
 // Trust proxy - Add this before other middleware
 app.set('trust proxy', 1);
 
@@ -166,8 +173,11 @@ const socketHandler = new SocketHandler(io);
 socketHandler.initialize();
 
 // Update the server start to use the HTTP server instead of app
-server.listen(process.env.PORT || 5000, () => {
-  console.log(`Server running on port ${process.env.PORT || 5000}`);
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+  console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+}).on('error', (err) => {
+  console.error('Server failed to start:', err);
 });
 
 // Handle unhandled promise rejections
@@ -198,3 +208,12 @@ process.on('SIGINT', () => {
 
 // Export io instance for use in other files
 module.exports.io = io;
+
+// Socket.IO error handling
+io.on('connect_error', (err) => {
+  console.error('Socket.IO connection error:', err);
+});
+
+io.on('error', (err) => {
+  console.error('Socket.IO error:', err);
+});

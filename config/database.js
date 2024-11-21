@@ -1,19 +1,26 @@
 const mongoose = require('mongoose');
 
 const connectDB = async () => {
-  const connectOptions = {
-    serverSelectionTimeoutMS: 5000,
-    socketTimeoutMS: 45000,
-  };
-
   try {
-    const conn = await mongoose.connect(process.env.MONGODB_URI, connectOptions);
+    const conn = await mongoose.connect(process.env.MONGODB_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    });
+
     console.log(`MongoDB Connected: ${conn.connection.host}`);
-  } catch (err) {
-    console.error('MongoDB connection error:', err);
-    // Retry connection after 5 seconds
-    setTimeout(connectDB, 5000);
+  } catch (error) {
+    console.error(`Error: ${error.message}`);
+    // Don't exit in production, let the app retry
+    if (process.env.NODE_ENV === 'development') {
+      process.exit(1);
+    }
   }
 };
+
+// Add reconnection logic
+mongoose.connection.on('disconnected', () => {
+  console.log('MongoDB disconnected! Attempting to reconnect...');
+  setTimeout(connectDB, 5000);
+});
 
 module.exports = connectDB; 
