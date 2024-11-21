@@ -4,95 +4,68 @@ const bcrypt = require('bcryptjs');
 const userSchema = new mongoose.Schema({
   username: {
     type: String,
-    required: [true, 'Please provide a username'],
-    unique: true,
-    trim: true,
-    minlength: [3, 'Username must be at least 3 characters long']
+    required: true,
+    unique: true
   },
   email: {
     type: String,
-    required: [true, 'Please provide an email'],
-    unique: true,
-    lowercase: true,
-    trim: true
+    required: true,
+    unique: true
   },
   password: {
     type: String,
-    required: [true, 'Please provide a password'],
-    minlength: 6,
-    select: false
+    required: true
   },
   userType: {
     type: String,
     enum: ['user', 'artisan'],
-    required: [true, 'Please specify user type']
-  },
-  role: {
-    type: String,
-    enum: ['user', 'admin', 'artisan'],
-    default: 'user'
+    required: true
   },
   phoneNumber: {
     type: String,
-    required: [true, 'Please provide a phone number']
-  },
-  avatar: {
-    url: String,
-    public_id: String
+    required: true
   },
   artisanProfile: {
-    businessName: String,
-    specialty: [{
-      type: String,
-      enum: ['Plumbing', 'Electrical', 'Carpentry', 'Painting', 'Cleaning', 'Landscaping', 'Other']
-    }],
-    experience: Number,
-    bio: String,
-    location: {
-      type: {
-        type: String,
-        enum: ['Point'],
-        default: 'Point'
-      },
-      coordinates: {
-        type: [Number],
-        required: true
-      },
-      address: String,
-      city: String,
-      state: String
-    },
-    rating: {
-      type: Number,
-      default: 0
-    },
-    numReviews: {
-      type: Number,
-      default: 0
-    },
-    availability: {
-      type: Boolean,
-      default: true
-    },
-    certifications: [{
-      name: String,
-      issuer: String,
-      year: Number,
-      document: {
-        url: String,
-        public_id: String
+    type: {
+      businessName: String,
+      specialty: [String],
+      experience: Number,
+      bio: String,
+      location: {
+        type: {
+          coordinates: {
+            type: [Number],
+            required: function() {
+              return this.userType === 'artisan';
+            }
+          },
+          address: {
+            type: String,
+            required: function() {
+              return this.userType === 'artisan';
+            }
+          },
+          city: {
+            type: String,
+            required: function() {
+              return this.userType === 'artisan';
+            }
+          },
+          state: {
+            type: String,
+            required: function() {
+              return this.userType === 'artisan';
+            }
+          }
+        },
+        required: function() {
+          return this.userType === 'artisan';
+        }
       }
-    }],
-    verified: {
-      type: Boolean,
-      default: false
+    },
+    required: function() {
+      return this.userType === 'artisan';
     }
-  },
-  passwordChangedAt: Date,
-  active: {
-    type: Boolean,
-    default: true,
-    select: false
   }
 }, {
   timestamps: true
