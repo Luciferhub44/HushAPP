@@ -1,41 +1,27 @@
 const router = require('express').Router();
 const { protect } = require('../middleware/auth');
-const Dispute = require('../models/Dispute');
+const disputeResolution = require('../services/disputeResolution');
 const { AppError } = require('../middleware/error');
 const { upload } = require('../config/cloudinary');
-const { notifications } = require('../utils/notifications');
+const { validateDispute } = require('../validation/disputeValidation');
 
 // Create new dispute
-router.post('/', protect, upload.array('evidence', 5), async (req, res, next) => {
+router.post('/', protect, upload.array('evidence', 5), validateDispute, async (req, res, next) => {
   try {
     const { orderId, type, description } = req.body;
-    const order = await Order.findById(orderId);
+    const evidence = req.files ? req.files.map(file => ({
+      type: file.mimetype.startsWith('image/') ? 'image' : 'document',
+      url: file.path,
+      description: file.originalname
+    })) : [];
 
-    if (!order) {
-      return next(new AppError('Order not found', 404));
-    }
-
-    // Determine who's raising the dispute and against whom
-    const isUser = order.user.toString() === req.user.id;
-    const dispute = await Dispute.create({
-      order: orderId,
-      raisedBy: req.user.id,
-      against: isUser ? order.artisan : order.user,
+    const dispute = await disputeResolution.initiateDispute(
+      orderId,
+      req.user.id,
       type,
       description,
-      evidence: req.files ? req.files.map(file => ({
-        type: file.mimetype.startsWith('image/') ? 'image' : 'document',
-        url: file.path,
-        description: file.originalname
-      })) : []
-    });
-
-    // Notify the other party
-    await notifications.sendNotification(dispute.against, 'dispute_opened', {
-      disputeId: dispute._id,
-      orderId: order._id,
-      type
-    });
+      evidence
+    );
 
     res.status(201).json({
       status: 'success',
@@ -46,68 +32,42 @@ router.post('/', protect, upload.array('evidence', 5), async (req, res, next) =>
   }
 });
 
-// Add message to dispute
-router.post('/:id/messages', protect, upload.array('attachments', 3), async (req, res, next) => {
-  try {
-    const { message } = req.body;
-    const dispute = await Dispute.findById(req.params.id);
-
-    if (!dispute) {
-      return next(new AppError('Dispute not found', 404));
-    }
-
-    // Verify user is involved in dispute
-    if (![dispute.raisedBy.toString(), dispute.against.toString()].includes(req.user.id)) {
-      return next(new AppError('Not authorized', 403));
-    }
-
-    const newMessage = {
-      sender: req.user.id,
-      message,
-      attachments: req.files ? req.files.map(file => ({
-        type: file.mimetype.startsWith('image/') ? 'image' : 'document',
-        url: file.path
-      })) : []
-    };
-
-    dispute.messages.push(newMessage);
-    await dispute.save();
-
-    // Notify other party
-    const recipientId = dispute.raisedBy.toString() === req.user.id ? 
-      dispute.against : dispute.raisedBy;
-    
-    await notifications.sendNotification(recipientId, 'dispute_message', {
-      disputeId: dispute._id,
-      message: message.substring(0, 50) + (message.length > 50 ? '...' : '')
-    });
-
-    res.status(200).json({
-      status: 'success',
-      data: { message: newMessage }
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
 // Get user's disputes
 router.get('/my-disputes', protect, async (req, res, next) => {
   try {
-    const disputes = await Dispute.find({
+    const { status, page = 1, limit = 10 } = req.query;
+    const skip = (page - 1) * limit;
+
+    const query = {
       $or: [
         { raisedBy: req.user.id },
         { against: req.user.id }
       ]
-    })
-    .populate('order', 'orderNumber totalAmount')
-    .populate('raisedBy', 'username')
-    .populate('against', 'username')
-    .sort('-createdAt');
+    };
+
+    if (status) {
+      query.status = status;
+    }
+
+    const disputes = await Dispute.find(query)
+      .populate('order', 'orderNumber totalAmount status')
+      .populate('raisedBy', 'username profileImage')
+      .populate('against', 'username profileImage')
+      .sort('-createdAt')
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const total = await Dispute.countDocuments(query);
 
     res.status(200).json({
       status: 'success',
       results: disputes.length,
+      pagination: {
+        total,
+        pages: Math.ceil(total / limit),
+        page: parseInt(page),
+        limit: parseInt(limit)
+      },
       data: { disputes }
     });
   } catch (err) {
@@ -132,6 +92,68 @@ router.get('/:id', protect, async (req, res, next) => {
     if (![dispute.raisedBy.toString(), dispute.against.toString()].includes(req.user.id)) {
       return next(new AppError('Not authorized', 403));
     }
+
+    res.status(200).json({
+      status: 'success',
+      data: { dispute }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Add message to dispute
+router.post('/:id/messages', protect, upload.array('attachments', 3), async (req, res, next) => {
+  try {
+    const { message } = req.body;
+    const attachments = req.files ? req.files.map(file => ({
+      type: file.mimetype.startsWith('image/') ? 'image' : 'document',
+      url: file.path
+    })) : [];
+
+    const updatedDispute = await disputeResolution.addDisputeMessage(
+      req.params.id,
+      req.user.id,
+      message,
+      attachments
+    );
+
+    res.status(200).json({
+      status: 'success',
+      data: { dispute: updatedDispute }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Escalate dispute
+router.post('/:id/escalate', protect, async (req, res, next) => {
+  try {
+    const { reason } = req.body;
+    const dispute = await disputeResolution.escalateDispute(
+      req.params.id,
+      reason
+    );
+
+    res.status(200).json({
+      status: 'success',
+      data: { dispute }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Resolve dispute (Admin only)
+router.post('/:id/resolve', protect, restrictTo('admin'), async (req, res, next) => {
+  try {
+    const { resolution } = req.body;
+    const dispute = await disputeResolution.resolveDispute(
+      req.params.id,
+      resolution,
+      req.user.id
+    );
 
     res.status(200).json({
       status: 'success',
