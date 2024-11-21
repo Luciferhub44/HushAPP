@@ -17,6 +17,7 @@ const corsMiddleware = require('./middleware/cors');
 const rateLimiter = require('./middleware/rateLimiter');
 const logger = require('./middleware/logger');
 const socketInit = require('./utils/socketInit');
+const { adminBro, router: adminRouter } = require('./config/adminConfig');
 
 // Route imports
 const userRoutes = require('./routes/users');
@@ -222,3 +223,5 @@ process.on('SIGINT', () => {
   console.log('👋 SIGINT RECEIVED. Shutting down gracefully');
   gracefulShutdown(server);
 });
+
+app.use(adminBro.options.rootPath, adminRouter);
