@@ -4,6 +4,7 @@ const { AppError } = require('../middleware/error');
 const { protect, restrictTo } = require('../middleware/auth');
 const { registerValidation, loginValidation, updateUserValidation } = require('../validation/userValidation');
 const User = require('../models/User');
+const { validateRegister } = require('../middleware/validate');
 
 // Helper function to generate JWT token
 const generateToken = (id, userType) => {
@@ -40,18 +41,23 @@ const sendTokenResponse = (user, statusCode, res) => {
 // @desc    Register user/artisan
 // @route   POST /api/users/register
 // @access  Public
-router.post('/register', async (req, res, next) => {
+router.post('/register', validateRegister, async (req, res, next) => {
   try {
-    const { error } = registerValidation.validate(req.body);
-    if (error) {
-      return next(new AppError(error.details[0].message, 400));
-    }
+    const { username, email, password, userType, phoneNumber, artisanProfile } = req.body;
+    
+    // Log sanitized request info (avoid logging full password)
+    console.log('Registration attempt:', {
+      username,
+      email,
+      userType,
+      hasArtisanProfile: !!artisanProfile
+    });
 
     // Check if user exists
     const userExists = await User.findOne({ 
       $or: [
-        { email: req.body.email },
-        { username: req.body.username }
+        { email: email.toLowerCase() },
+        { username: username.toLowerCase() }
       ]
     });
 
@@ -59,17 +65,29 @@ router.post('/register', async (req, res, next) => {
       return next(new AppError('User with this email or username already exists', 400));
     }
 
-    // Set role based on userType
-    const role = req.body.userType === 'artisan' ? 'artisan' : 'user';
-
-    // Create user
+    // Create user with all validated fields
     const user = await User.create({
-      ...req.body,
-      role
+      username: username.toLowerCase(),
+      email: email.toLowerCase(),
+      password,
+      userType,
+      phoneNumber,
+      ...(userType === 'artisan' ? { artisanProfile } : {})
+    });
+
+    // Log successful registration (without sensitive data)
+    console.log('User registered successfully:', {
+      id: user._id,
+      username: user.username,
+      userType: user.userType
     });
 
     sendTokenResponse(user, 201, res);
   } catch (err) {
+    console.error('Registration error:', {
+      message: err.message,
+      code: err.code
+    });
     next(err);
   }
 });
