@@ -17,7 +17,8 @@ const corsMiddleware = require('./middleware/cors');
 const rateLimiter = require('./middleware/rateLimiter');
 const logger = require('./middleware/logger');
 const socketInit = require('./utils/socketInit');
-const { adminBro, router: adminRouter } = require('./config/adminConfig');
+const { adminRouter } = require('./config/adminConfig');
+const path = require('path');
 
 // Route imports
 const userRoutes = require('./routes/users');
@@ -53,12 +54,11 @@ app.use(rateLimiter);
 
 // Rate limiting
 const limiter = rateLimit({
-  max: 100, // Limit each IP to 100 requests per windowMs
-  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 100,
+  windowMs: 60 * 60 * 1000,
   message: 'Too many requests from this IP, please try again in an hour!',
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  // Add trusted proxy configuration
+  standardHeaders: true,
+  legacyHeaders: false,
   trustProxy: true
 });
 app.use('/api', limiter);
@@ -97,7 +97,13 @@ apiRouter.use('/chats', chatRoutes);
 apiRouter.use('/notifications', notificationRoutes);
 apiRouter.use('/payments', paymentRoutes);
 apiRouter.use('/payouts', payoutRoutes);
-apiRouter.use('/disputes', disputeRoutes); // Add the disputes route
+apiRouter.use('/disputes', disputeRoutes);
+
+// Serve static files for admin panel BEFORE admin routes
+app.use('/admin', express.static(path.join(__dirname, 'public/admin')));
+
+// Mount admin routes AFTER static files
+app.use('/admin/api', adminRouter);
 
 // Add a root route handler
 app.get('/', (req, res) => {
@@ -161,6 +167,9 @@ const SocketHandler = require('./utils/socketHandler');
 const socketHandler = new SocketHandler(io);
 socketHandler.initialize();
 
+// Serve static files
+app.use(express.static(path.join(__dirname, 'public')));
+
 // Export only what's needed
 module.exports = { app, server };
 
@@ -223,5 +232,3 @@ process.on('SIGINT', () => {
   console.log('👋 SIGINT RECEIVED. Shutting down gracefully');
   gracefulShutdown(server);
 });
-
-app.use(adminBro.options.rootPath, adminRouter);

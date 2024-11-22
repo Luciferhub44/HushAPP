@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Hush Admin Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            display: flex;
+            min-height: 100vh;
+        }
+        .sidebar {
+            width: 250px;
+            background-color: #2c3e50;
+            color: white;
+            padding: 1rem;
+        }
+        .main-content {
+            flex: 1;
+            padding: 2rem;
+        }
+        .nav-item {
+            padding: 0.75rem;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .nav-item:hover {
+            background-color: #34495e;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .stat-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .data-table th, .data-table td {
+            padding: 0.75rem;
+            border: 1px solid #ddd;
+        }
+        .data-table th {
+            background-color: #f5f5f5;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <h2>Hush Admin</h2>
+            <div class="nav-item" onclick="loadSection('dashboard')">Dashboard</div>
+            <div class="nav-item" onclick="loadSection('users')">Users</div>
+            <div class="nav-item" onclick="loadSection('products')">Products</div>
+            <div class="nav-item" onclick="loadSection('orders')">Orders</div>
+            <div class="nav-item" onclick="loadSection('disputes')">Disputes</div>
+            <div class="nav-item" onclick="logout()">Logout</div>
+        </div>
+        <div class="main-content" id="mainContent">
+            <!-- Content will be loaded here -->
+        </div>
+    </div>
+
+    <script>
+        // Check authentication
+        if (!localStorage.getItem('adminToken')) {
+            window.location.href = '/admin/index.html';
+        }
+
+        async function loadSection(section) {
+            try {
+                const response = await fetch(`/admin/api/${section}`, {
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    displayData(section, data);
+                } else if (response.status === 401) {
+                    localStorage.removeItem('adminToken');
+                    window.location.href = '/admin/index.html';
+                }
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+
+        function displayData(section, data) {
+            const mainContent = document.getElementById('mainContent');
+            let html = '';
+
+            switch(section) {
+                case 'dashboard':
+                    html = `
+                        <h2>Dashboard</h2>
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <h3>Total Users</h3>
+                                <p>${data.data.users}</p>
+                            </div>
+                            <div class="stat-card">
+                                <h3>Total Orders</h3>
+                                <p>${data.data.orders}</p>
+                            </div>
+                            <div class="stat-card">
+                                <h3>Revenue</h3>
+                                <p>$${data.data.revenue}</p>
+                            </div>
+                        </div>
+                    `;
+                    break;
+                // Add other cases for different sections
+            }
+
+            mainContent.innerHTML = html;
+        }
+
+        function logout() {
+            localStorage.removeItem('adminToken');
+            window.location.href = '/admin/index.html';
+        }
+
+        // Load dashboard by default
+        loadSection('dashboard');
+    </script>
+</body>
+</html> 
