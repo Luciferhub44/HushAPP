@@ -82,26 +82,46 @@ const userSchema = new mongoose.Schema({
     lowercase: true,
     match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please provide a valid email']
   },
+  phoneNumber: {
+    type: String,
+    required: [true, 'Phone number is required'],
+    unique: true,
+    trim: true
+  },
   password: {
     type: String,
     required: [true, 'Password is required'],
     minlength: 8,
     select: false
   },
-  phoneNumber: {
-    type: String,
-    required: [true, 'Phone number is required']
-  },
   userType: {
     type: String,
     enum: ['user', 'artisan'],
     required: true
+  },
+  location: {
+    type: locationSchema,
+    required: function() {
+      return this.userType === 'user';
+    }
   },
   artisanProfile: {
     type: artisanProfileSchema,
     required: function() {
       return this.userType === 'artisan';
     }
+  },
+  otp: {
+    code: String,
+    expiresAt: Date
+  },
+  isPhoneVerified: {
+    type: Boolean,
+    default: false
+  },
+  isEmailVerified: {
+    type: Boolean,
+    default: false
   },
   profileImage: {
     type: String,
@@ -131,6 +151,7 @@ const userSchema = new mongoose.Schema({
 
 userSchema.index({ 'artisanProfile.location': '2dsphere' });
 userSchema.index({ email: 1, username: 1 });
+userSchema.index({ phoneNumber: 1 });
 
 // Hash password before saving
 userSchema.pre('save', async function(next) {
@@ -165,6 +186,23 @@ userSchema.methods.changedPasswordAfter = function(JWTTimestamp) {
     return JWTTimestamp < changedTimestamp;
   }
   return false;
+};
+
+userSchema.methods.generateOTP = function() {
+  const otp = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit OTP
+  this.otp = {
+    code: otp,
+    expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes expiry
+  };
+  return otp;
+};
+
+userSchema.methods.verifyOTP = function(code) {
+  return (
+    this.otp &&
+    this.otp.code === code &&
+    this.otp.expiresAt > new Date()
+  );
 };
 
 module.exports = mongoose.model('User', userSchema);
