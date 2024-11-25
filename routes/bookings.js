@@ -37,13 +37,14 @@ router.post('/', protect, async (req, res, next) => {
       status: 'pending'
     });
 
-    // Create notification
+    // Create notification with onModel field
     const notification = await Notification.create({
       recipient: artisan._id,
       title: 'New Booking Request',
       message: `You have a new booking request for ${req.body.service}`,
       type: 'booking',
-      relatedId: booking._id
+      relatedId: booking._id,
+      onModel: 'Booking'
     });
 
     // Emit socket event if io is available
