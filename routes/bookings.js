@@ -1,7 +1,6 @@
 const router = require('express').Router();
 const { protect, restrictTo } = require('../middleware/auth');
 const { AppError } = require('../middleware/error');
-const { createBookingValidation, updateBookingValidation, reviewValidation } = require('../validation/bookingValidation');
 const Booking = require('../models/Booking');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
@@ -12,51 +11,61 @@ const { io } = require('../server');
 // @access  Private
 router.post('/', protect, async (req, res, next) => {
   try {
-    // Validate request body
-    const { error } = createBookingValidation.validate(req.body);
-    if (error) {
-      return next(new AppError(error.details[0].message, 400));
-    }
+    // Log the request body for debugging
+    console.log('Creating booking with data:', req.body);
 
     // Check if artisan exists and is available
     const artisan = await User.findOne({
       _id: req.body.artisan,
-      userType: 'artisan',
-      'artisanProfile.availability': true
+      userType: 'artisan'
     });
 
     if (!artisan) {
-      return next(new AppError('Artisan not found or not available', 404));
+      return next(new AppError('Artisan not found', 404));
     }
 
     // Create booking
     const booking = await Booking.create({
-      ...req.body,
       user: req.user.id,
+      artisan: req.body.artisan,
+      service: req.body.service,
+      description: req.body.description,
+      location: req.body.location,
+      scheduledDate: req.body.scheduledDate,
+      estimatedDuration: req.body.estimatedDuration,
+      price: req.body.price,
       status: 'pending'
     });
 
-    // Create notification for artisan
+    // Create notification
     const notification = await Notification.create({
       recipient: artisan._id,
       title: 'New Booking Request',
-      message: `You have a new booking request from ${req.user.username}`,
+      message: `You have a new booking request for ${req.body.service}`,
       type: 'booking',
-      relatedId: booking._id,
-      onModel: 'Booking'
+      relatedId: booking._id
     });
 
-    // Emit real-time notification
-    io.to(artisan._id.toString()).emit('newBooking', {
-      booking,
-      notification
-    });
+    // Emit socket event if io is available
+    if (io) {
+      try {
+        io.to(artisan._id.toString()).emit('newBooking', {
+          booking,
+          notification
+        });
+      } catch (socketError) {
+        console.error('Socket emission error:', socketError);
+        // Continue execution even if socket emission fails
+      }
+    }
 
     res.status(201).json({
       status: 'success',
       data: { booking }
     });
+
   } catch (err) {
+    console.error('Booking creation error:', err);
     next(err);
   }
 });

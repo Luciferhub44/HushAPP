@@ -171,7 +171,7 @@ socketHandler.initialize();
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Export only what's needed
-module.exports = { app, server };
+module.exports = { app, server, io };
 
 // Start the server
 const startServer = async () => {

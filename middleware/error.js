@@ -12,28 +12,19 @@ class AppError extends Error {
 
 // Error handler middleware
 const errorHandler = (err, req, res, next) => {
-  console.error(err.stack);
-
-  // Add specific handling for validation errors
-  if (err.name === 'ValidationError') {
-    return res.status(400).json({
-      success: false,
-      error: err.message,
-      details: Object.values(err.errors).map(error => error.message)
-    });
-  }
-
-  // Handle duplicate key errors (e.g., duplicate email)
-  if (err.code === 11000) {
-    return res.status(400).json({
-      success: false,
-      error: 'Duplicate field value entered'
-    });
-  }
+  console.error('Error details:', {
+    name: err.name,
+    message: err.message,
+    stack: err.stack,
+    path: req.path,
+    method: req.method,
+    body: req.body
+  });
 
   res.status(err.statusCode || 500).json({
-    success: false,
-    error: err.message || 'Server Error'
+    status: 'error',
+    message: err.message || 'Internal server error',
+    error: process.env.NODE_ENV === 'development' ? err : undefined
   });
 };
 
