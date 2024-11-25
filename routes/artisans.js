@@ -1,125 +1,73 @@
-const router = require('express').Router();
-const { protect, restrictTo } = require('../middleware/auth');
-const { AppError } = require('../middleware/error');
-const User = require('../models/User');
-const Product = require('../models/Product');
-const Booking = require('../models/Booking');
-const { upload } = require('../config/cloudinary');
+const express = require('express');
+const router = express.Router();
+const { protect } = require('../middleware/auth');
+const Artisan = require('../models/Artisans');
+const AppError = require('../utils/AppError');
 
-// @desc    Get all artisans
-// @route   GET /api/users/artisans
+// @route   GET /api/artisans
+// @desc    Get all artisans with filters
 // @access  Public
 router.get('/', async (req, res, next) => {
   try {
-    const query = { userType: 'artisan' };
+    const {
+      specialty,
+      rating,
+      price,
+      location,
+      radius = 5000, // Default 5km radius
+      page = 1,
+      limit = 10
+    } = req.query;
+
+    const query = {};
 
     // Filter by specialty
-    if (req.query.specialty) {
-      query['artisanProfile.specialty'] = req.query.specialty;
+    if (specialty) {
+      query['services.category'] = specialty;
     }
 
     // Filter by rating
-    if (req.query.minRating) {
-      query['artisanProfile.rating'] = { $gte: parseFloat(req.query.minRating) };
+    if (rating) {
+      query['stats.averageRating'] = { $gte: parseFloat(rating) };
     }
 
-    // Filter by availability
-    if (req.query.available === 'true') {
-      query['artisanProfile.availability'] = true;
+    // Filter by price range
+    if (price) {
+      const [min, max] = price.split('-');
+      query['services.basePrice'] = {
+        $gte: parseInt(min),
+        $lte: parseInt(max)
+      };
     }
 
-    // Filter by verification status
-    if (req.query.verified === 'true') {
-      query['artisanProfile.verified'] = true;
-    }
-
-    const artisans = await User.find(query)
-      .select('username artisanProfile email phoneNumber');
-
-    res.status(200).json({
-      status: 'success',
-      results: artisans.length,
-      data: { artisans }
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// @desc    Get nearby artisans
-// @route   GET /api/users/artisans/nearby
-// @access  Public
-router.get('/nearby', async (req, res, next) => {
-  try {
-    const { longitude, latitude, maxDistance = 10000 } = req.query; // maxDistance in meters
-
-    if (!longitude || !latitude) {
-      return next(new AppError('Please provide longitude and latitude', 400));
-    }
-
-    const artisans = await User.find({
-      userType: 'artisan',
-      'artisanProfile.location': {
-        $near: {
-          $geometry: {
-            type: 'Point',
-            coordinates: [parseFloat(longitude), parseFloat(latitude)]
-          },
-          $maxDistance: parseInt(maxDistance)
+    // Filter by location if coordinates provided
+    if (location) {
+      const [lng, lat] = location.split(',').map(Number);
+      query.serviceArea = {
+        $geoWithin: {
+          $centerSphere: [[lng, lat], radius / 6378100] // Convert radius to radians
         }
-      }
-    }).select('username artisanProfile email phoneNumber');
-
-    res.status(200).json({
-      status: 'success',
-      results: artisans.length,
-      data: { artisans }
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// @desc    Get artisan profile
-// @route   GET /api/users/artisans/:id
-// @access  Public
-router.get('/:id', async (req, res, next) => {
-  try {
-    const artisan = await User.findOne({
-      _id: req.params.id,
-      userType: 'artisan'
-    }).select('-__v');
-
-    if (!artisan) {
-      return next(new AppError('Artisan not found', 404));
+      };
     }
 
-    // Get artisan's products
-    const products = await Product.find({
-      artisan: artisan._id,
-      status: 'active'
-    });
+    const artisans = await Artisan.find(query)
+      .populate('user', 'username email phoneNumber')
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .sort('-stats.averageRating');
 
-    // Get completed bookings count and average rating
-    const bookings = await Booking.find({
-      artisan: artisan._id,
-      status: 'completed',
-      rating: { $exists: true }
-    });
-
-    const stats = {
-      completedJobs: bookings.length,
-      averageRating: bookings.length > 0
-        ? bookings.reduce((acc, curr) => acc + curr.rating, 0) / bookings.length
-        : 0
-    };
+    const total = await Artisan.countDocuments(query);
 
     res.status(200).json({
       status: 'success',
       data: {
-        artisan,
-        products,
-        stats
+        artisans,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          pages: Math.ceil(total / limit)
+        }
       }
     });
   } catch (err) {
@@ -127,14 +75,24 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
-// @desc    Update artisan availability
-// @route   PATCH /api/users/artisans/availability
-// @access  Private/Artisan
-router.patch('/availability', protect, restrictTo('artisan'), async (req, res, next) => {
+// @route   GET /api/artisans/:id
+// @desc    Get artisan details
+// @access  Public
+router.get('/:id', async (req, res, next) => {
   try {
-    const artisan = await User.findById(req.user.id);
-    artisan.artisanProfile.availability = req.body.availability;
-    await artisan.save();
+    const artisan = await Artisan.findById(req.params.id)
+      .populate('user', 'username email phoneNumber')
+      .populate({
+        path: 'reviews',
+        populate: {
+          path: 'user',
+          select: 'username'
+        }
+      });
+
+    if (!artisan) {
+      return next(new AppError('Artisan not found', 404));
+    }
 
     res.status(200).json({
       status: 'success',
@@ -145,118 +103,122 @@ router.patch('/availability', protect, restrictTo('artisan'), async (req, res, n
   }
 });
 
-// @desc    Upload certification
-// @route   POST /api/users/artisans/certifications
-// @access  Private/Artisan
-router.post('/certifications', protect, restrictTo('artisan'), upload.single('document'), async (req, res, next) => {
+// @route   POST /api/artisans/:id/reviews
+// @desc    Add review for artisan
+// @access  Private
+router.post('/:id/reviews', protect, async (req, res, next) => {
   try {
-    const artisan = await User.findById(req.user.id);
+    const { rating, comment, bookingId } = req.body;
 
-    if (!req.file) {
-      return next(new AppError('Please upload a document', 400));
+    const artisan = await Artisan.findById(req.params.id);
+    if (!artisan) {
+      return next(new AppError('Artisan not found', 404));
     }
 
-    const certification = {
-      name: req.body.name,
-      issuer: req.body.issuer,
-      year: req.body.year,
-      document: {
-        url: req.file.path,
-        public_id: req.file.filename
-      }
-    };
+    // Check if user has a completed booking with this artisan
+    const hasValidBooking = await Booking.findOne({
+      _id: bookingId,
+      user: req.user.id,
+      artisan: artisan.user,
+      status: 'completed'
+    });
 
-    artisan.artisanProfile.certifications.push(certification);
+    if (!hasValidBooking) {
+      return next(new AppError('You can only review after a completed booking', 400));
+    }
+
+    // Check if user has already reviewed this booking
+    const existingReview = artisan.reviews.find(
+      review => review.booking.toString() === bookingId
+    );
+
+    if (existingReview) {
+      return next(new AppError('You have already reviewed this booking', 400));
+    }
+
+    artisan.reviews.push({
+      user: req.user.id,
+      rating,
+      comment,
+      booking: bookingId
+    });
+
+    await artisan.calculateAverageRating();
     await artisan.save();
 
     res.status(201).json({
       status: 'success',
-      data: { certification }
+      data: {
+        review: artisan.reviews[artisan.reviews.length - 1]
+      }
     });
   } catch (err) {
     next(err);
   }
 });
 
-// @desc    Get artisan analytics
-// @route   GET /api/users/artisans/analytics
-// @access  Private/Artisan
-router.get('/analytics', protect, restrictTo('artisan'), async (req, res, next) => {
+// @route   PATCH /api/artisans/availability
+// @desc    Update artisan availability
+// @access  Private
+router.patch('/availability', protect, async (req, res, next) => {
   try {
-    const bookings = await Booking.find({
-      artisan: req.user.id,
-      status: 'completed'
-    });
+    const artisan = await Artisan.findOne({ user: req.user.id });
+    if (!artisan) {
+      return next(new AppError('Artisan profile not found', 404));
+    }
 
-    const analytics = {
-      totalBookings: bookings.length,
-      totalEarnings: bookings.reduce((acc, curr) => acc + curr.price, 0),
-      averageRating: bookings.reduce((acc, curr) => acc + (curr.rating || 0), 0) / bookings.length || 0,
-      completionRate: await calculateCompletionRate(req.user.id),
-      monthlyStats: await calculateMonthlyStats(req.user.id),
-      serviceBreakdown: await calculateServiceBreakdown(req.user.id)
-    };
+    const { schedule, customDates } = req.body;
+
+    if (schedule) {
+      artisan.availability.schedule = schedule;
+    }
+
+    if (customDates) {
+      artisan.availability.customDates = customDates;
+    }
+
+    await artisan.save();
 
     res.status(200).json({
       status: 'success',
-      data: { analytics }
+      data: {
+        availability: artisan.availability
+      }
     });
   } catch (err) {
     next(err);
   }
 });
 
-// Helper functions for analytics
-async function calculateCompletionRate(artisanId) {
-  const totalBookings = await Booking.countDocuments({ artisan: artisanId });
-  const completedBookings = await Booking.countDocuments({
-    artisan: artisanId,
-    status: 'completed'
-  });
+// @route   PATCH /api/artisans/location
+// @desc    Update artisan current location
+// @access  Private
+router.patch('/location', protect, async (req, res, next) => {
+  try {
+    const { coordinates } = req.body;
 
-  return totalBookings > 0 ? (completedBookings / totalBookings) * 100 : 0;
-}
-
-async function calculateMonthlyStats(artisanId) {
-  const bookings = await Booking.aggregate([
-    {
-      $match: {
-        artisan: artisanId,
-        status: 'completed'
-      }
-    },
-    {
-      $group: {
-        _id: {
-          month: { $month: '$createdAt' },
-          year: { $year: '$createdAt' }
-        },
-        bookings: { $sum: 1 },
-        earnings: { $sum: '$price' }
-      }
-    },
-    { $sort: { '_id.year': -1, '_id.month': -1 } }
-  ]);
-
-  return bookings;
-}
-
-async function calculateServiceBreakdown(artisanId) {
-  return await Booking.aggregate([
-    {
-      $match: {
-        artisan: artisanId,
-        status: 'completed'
-      }
-    },
-    {
-      $group: {
-        _id: '$service',
-        count: { $sum: 1 },
-        totalEarnings: { $sum: '$price' }
-      }
+    const artisan = await Artisan.findOne({ user: req.user.id });
+    if (!artisan) {
+      return next(new AppError('Artisan profile not found', 404));
     }
-  ]);
-}
+
+    artisan.status.currentLocation = {
+      type: 'Point',
+      coordinates
+    };
+    artisan.status.lastActive = Date.now();
+
+    await artisan.save();
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        location: artisan.status.currentLocation
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 module.exports = router; 
