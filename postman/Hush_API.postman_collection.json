@@ -19,8 +19,7 @@
                   "pm.environment.set('random_username', `user_${timestamp}`);",
                   "pm.environment.set('random_email', `user_${timestamp}@example.com`);",
                   "pm.environment.set('random_password', `Test${timestamp}!@#`);",
-                  "pm.environment.set('random_phone', `+1${Math.floor(Math.random() * 9000000000) + 1000000000}`);",
-                  ""
+                  "pm.environment.set('random_phone', `+1${Math.floor(Math.random() * 9000000000) + 1000000000}`);"
                 ],
                 "type": "text/javascript"
               }
@@ -62,8 +61,7 @@
                   "pm.environment.set('random_artisan_phone', `+1${Math.floor(Math.random() * 9000000000) + 1000000000}`);",
                   "pm.environment.set('random_business_name', `Service Pro ${timestamp}`);",
                   "pm.environment.set('random_coordinates', JSON.stringify([lng, lat]));",
-                  "pm.environment.set('random_experience', Math.floor(Math.random() * 20) + 1);",
-                  ""
+                  "pm.environment.set('random_experience', Math.floor(Math.random() * 20) + 1);"
                 ],
                 "type": "text/javascript"
               }
@@ -79,12 +77,184 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"username\": \"{{random_artisan_username}}\",\n    \"email\": \"{{random_artisan_email}}\",\n    \"password\": \"{{random_artisan_password}}\",\n    \"userType\": \"artisan\",\n    \"phoneNumber\": \"{{random_artisan_phone}}\",\n    \"artisanProfile\": {\n        \"businessName\": \"{{random_business_name}}\",\n        \"specialty\": [\"Plumbing\", \"General Repairs\"],\n        \"experience\": {{random_experience}},\n        \"bio\": \"Professional with {{random_experience}} years of experience\",\n        \"location\": {\n            \"coordinates\": {{random_coordinates}},\n            \"address\": \"123 Test St\",\n            \"city\": \"Test City\",\n            \"state\": \"Test State\"\n        }\n    }\n}"
+              "raw": "{\n    \"username\": \"{{random_artisan_username}}\",\n    \"email\": \"{{random_artisan_email}}\",\n    \"password\": \"{{random_artisan_password}}\",\n    \"userType\": \"artisan\",\n    \"phoneNumber\": \"{{random_artisan_phone}}\",\n    \"artisanProfile\": {\n        \"businessName\": \"{{random_business_name}}\",\n        \"specialty\": [\"Plumbing\", \"General Repairs\"],\n        \"experience\": {{random_experience}},\n        \"bio\": \"Professional with {{random_experience}} years of experience\",\n        \"location\": {\n            \"type\": \"Point\",\n            \"coordinates\": {{random_coordinates}},\n            \"address\": \"123 Test St\",\n            \"city\": \"Test City\",\n            \"state\": \"Test State\"\n        }\n    }\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/api/auth/register",
               "host": ["{{baseUrl}}"],
               "path": ["api", "auth", "register"]
+            }
+          }
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{random_email}}\",\n    \"password\": \"{{random_password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "Get Profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/me",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "me"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Bookings",
+      "item": [
+        {
+          "name": "Create Booking",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"artisan\": \"{{artisanId}}\",\n    \"service\": \"Plumbing\",\n    \"description\": \"Fix leaky faucet\",\n    \"location\": {\n        \"type\": \"Point\",\n        \"coordinates\": [-73.935242, 40.730610],\n        \"address\": \"123 Test St\"\n    },\n    \"scheduledDate\": \"{{$isoTimestamp}}\",\n    \"estimatedDuration\": {\n        \"value\": 2,\n        \"unit\": \"hours\"\n    },\n    \"price\": 100\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/bookings",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "bookings"]
+            }
+          }
+        },
+        {
+          "name": "Get User Bookings",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/bookings",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "bookings"]
+            }
+          }
+        },
+        {
+          "name": "Get Booking Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/bookings/{{bookingId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "bookings", "{{bookingId}}"]
+            }
+          }
+        },
+        {
+          "name": "Update Booking Status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"status\": \"accepted\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/bookings/{{bookingId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "bookings", "{{bookingId}}", "status"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Search",
+      "item": [
+        {
+          "name": "Search Artisans",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{authToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/search/artisans?specialty=Plumbing&lat=40.730610&lng=-73.935242&radius=5000",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "search", "artisans"],
+              "query": [
+                {
+                  "key": "specialty",
+                  "value": "Plumbing"
+                },
+                {
+                  "key": "lat",
+                  "value": "40.730610"
+                },
+                {
+                  "key": "lng",
+                  "value": "-73.935242"
+                },
+                {
+                  "key": "radius",
+                  "value": "5000"
+                }
+              ]
             }
           }
         }
@@ -97,10 +267,28 @@
       "script": {
         "type": "text/javascript",
         "exec": [
-          "// Global variables can be set here",
+          "// Global variables",
           "pm.environment.set('baseUrl', 'http://localhost:5000');"
         ]
       }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000"
+    },
+    {
+      "key": "authToken",
+      "value": ""
+    },
+    {
+      "key": "artisanId",
+      "value": ""
+    },
+    {
+      "key": "bookingId",
+      "value": ""
     }
   ]
 } 
