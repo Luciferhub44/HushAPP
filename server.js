@@ -136,21 +136,23 @@ app.all('*', (req, res, next) => {
 app.use(errorHandler);
 
 // Graceful shutdown function
-const gracefulShutdown = (server) => {
-  console.log('Starting graceful shutdown...');
-  server.close(() => {
-    console.log('Server closed');
-    mongoose.connection.close(false, () => {
-      console.log('MongoDB connection closed');
-      process.exit(0);
+const gracefulShutdown = async (server) => {
+  console.log('🔄 Starting graceful shutdown...');
+  
+  try {
+    await new Promise((resolve) => {
+      server.close(resolve);
     });
-  });
-
-  // Force shutdown after 30 seconds
-  setTimeout(() => {
-    console.error('Could not close connections in time, forcefully shutting down');
+    console.log('✅ Server closed');
+    
+    await mongoose.connection.close();
+    console.log('✅ MongoDB connection closed');
+    
+    process.exit(0);
+  } catch (error) {
+    console.error('❌ Error during shutdown:', error);
     process.exit(1);
-  }, 30000);
+  }
 };
 
 // Database connection with retry logic
@@ -177,30 +179,27 @@ module.exports = { app, server, io };
 const startServer = async () => {
   try {
     // Connect to database first
-    const dbConnected = await connectDB();
-    if (!dbConnected && process.env.NODE_ENV === 'production') {
-      throw new Error('Database connection failed');
-    }
-
+    const dbConnection = await connectDB();
+    
     // Start server only after successful DB connection
     const PORT = process.env.PORT || 5000;
     server.listen(PORT, () => {
       console.log(`
-        Server Started Successfully
+        🚀 Server Started Successfully
         -------------------------
-        Port: ${PORT}
-        Environment: ${process.env.NODE_ENV}
-        MongoDB Host: ${mongoose.connection.host}
-        Date: ${new Date().toISOString()}
+        🌐 Port: ${PORT}
+        🔧 Environment: ${process.env.NODE_ENV}
+        📦 MongoDB Host: ${dbConnection.connection.host}
+        📅 Date: ${new Date().toISOString()}
         -------------------------
       `);
     }).on('error', (err) => {
-      console.error('Server failed to start:', err);
+      console.error('❌ Server failed to start:', err);
       process.exit(1);
     });
 
   } catch (error) {
-    console.error('Failed to start server:', error);
+    console.error('❌ Failed to start server:', error);
     process.exit(1);
   }
 };
@@ -222,13 +221,13 @@ process.on('uncaughtException', (err) => {
 });
 
 // Handle SIGTERM
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
   console.log('👋 SIGTERM RECEIVED. Shutting down gracefully');
-  gracefulShutdown(server);
+  await gracefulShutdown(server);
 });
 
 // Handle SIGINT
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   console.log('👋 SIGINT RECEIVED. Shutting down gracefully');
-  gracefulShutdown(server);
+  await gracefulShutdown(server);
 });
