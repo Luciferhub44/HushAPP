@@ -50,18 +50,13 @@ app.use(xss()); // Data sanitization against XSS
 app.use(hpp()); // Prevent parameter pollution
 app.use(logger);
 app.use(corsMiddleware);
-app.use(rateLimiter);
 
 // Rate limiting
-const limiter = rateLimit({
-  max: 100,
-  windowMs: 60 * 60 * 1000,
-  message: 'Too many requests from this IP, please try again in an hour!',
-  standardHeaders: true,
-  legacyHeaders: false,
-  trustProxy: true
-});
-app.use('/api', limiter);
+const { authLimiter, apiLimiter } = require('./middleware/rateLimiter');
+
+// Apply rate limiters to specific routes
+app.use('/api/auth', authLimiter);  // Rate limit auth routes
+app.use('/api', apiLimiter);        // Rate limit all API routes
 
 // Development logging
 if (process.env.NODE_ENV === 'development') {

@@ -160,55 +160,27 @@ router.get('/my-jobs', protect, restrictTo('artisan'), async (req, res, next) =>
 // @access  Private/Artisan
 router.patch('/:id/status', protect, restrictTo('artisan'), async (req, res, next) => {
   try {
-    const { error } = updateBookingValidation.validate(req.body);
-    if (error) {
-      return next(new AppError(error.details[0].message, 400));
-    }
-
-    const booking = await Booking.findOne({
-      _id: req.params.id,
-      artisan: req.user._id
-    }).populate('user', 'username');
+    const { status } = req.body;
+    const booking = await Booking.findById(req.params.id);
 
     if (!booking) {
       return next(new AppError('Booking not found', 404));
     }
 
-    // Validate status transition
-    const validTransitions = {
-      pending: ['accepted', 'rejected'],
-      accepted: ['in-progress'],
-      'in-progress': ['completed'],
-      completed: [],
-      rejected: [],
-      cancelled: []
-    };
-
-    if (!validTransitions[booking.status].includes(req.body.status)) {
-      return next(new AppError(`Invalid status transition from ${booking.status} to ${req.body.status}`, 400));
+    if (booking.artisan.toString() !== req.user.id) {
+      return next(new AppError('Not authorized to update this booking', 403));
     }
 
-    booking.status = req.body.status;
-    if (req.body.status === 'rejected' || req.body.status === 'cancelled') {
-      booking.cancellationReason = req.body.cancellationReason;
-    }
-
+    booking.status = status;
     await booking.save();
 
-    // Create notification for user
-    const notification = await Notification.create({
-      recipient: booking.user._id,
-      title: 'Booking Update',
-      message: `Your booking has been ${req.body.status}`,
-      type: 'booking',
-      relatedId: booking._id,
-      onModel: 'Booking'
-    });
-
-    // Emit real-time update
-    io.to(booking.user._id.toString()).emit('bookingUpdate', {
-      booking,
-      notification
+    // Notify user about status change
+    await Notification.create({
+      recipient: booking.user,
+      title: 'Booking Status Updated',
+      message: `Your booking status has been updated to ${status}`,
+      type: 'booking_update',
+      relatedId: booking._id
     });
 
     res.status(200).json({

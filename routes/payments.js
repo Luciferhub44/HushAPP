@@ -79,4 +79,17 @@ router.post('/webhook', async (req, res, next) => {
   }
 });
 
+// Add these essential payment endpoints
+router.post('/create-payment', protect, async (req, res, next) => {
+  // Create payment logic
+});
+
+router.get('/payment-status/:id', protect, async (req, res, next) => {
+  // Get payment status logic
+});
+
+router.post('/refund/:id', protect, async (req, res, next) => {
+  // Refund logic
+});
+
 module.exports = router; 

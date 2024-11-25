@@ -19,20 +19,6 @@ router.post('/register', async (req, res, next) => {
   }
 });
 
-router.post('/verify-otp', async (req, res, next) => {
-  try {
-    const { userId, otp, type } = req.body;
-    const user = await authService.verifyOTP(userId, otp, type);
-    res.status(200).json({
-      success: true,
-      message: `${type} verification successful`,
-      data: { user }
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
 router.post('/login', async (req, res, next) => {
   try {
     const { phoneNumber, password } = req.body;
