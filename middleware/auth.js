@@ -1,12 +1,11 @@
 const jwt = require('jsonwebtoken');
-const { AppError } = require('./error');
 const User = require('../models/User');
+const AppError = require('../utils/AppError');
 
 exports.protect = async (req, res, next) => {
   try {
     let token;
 
-    // Get token from header
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
       token = req.headers.authorization.split(' ')[1];
     }
@@ -15,25 +14,20 @@ exports.protect = async (req, res, next) => {
       return next(new AppError('Not authorized to access this route', 401));
     }
 
-    // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      req.user = await User.findById(decoded.id);
+      
+      if (!req.user) {
+        return next(new AppError('User not found', 404));
+      }
 
-    // Get user from token
-    const user = await User.findById(decoded.id);
-
-    if (!user) {
-      return next(new AppError('User not found', 404));
+      next();
+    } catch (err) {
+      return next(new AppError('Not authorized to access this route', 401));
     }
-
-    // Check if user changed password after token was issued
-    if (user.changedPasswordAfter && user.changedPasswordAfter(decoded.iat)) {
-      return next(new AppError('User recently changed password. Please log in again', 401));
-    }
-
-    req.user = user;
-    next();
   } catch (err) {
-    next(new AppError('Not authorized to access this route', 401));
+    next(err);
   }
 };
 

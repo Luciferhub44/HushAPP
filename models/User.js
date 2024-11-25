@@ -1,15 +1,24 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
 const locationSchema = new mongoose.Schema({
   type: {
     type: String,
     enum: ['Point'],
-    default: 'Point'
+    required: true
   },
   coordinates: {
     type: [Number],
-    required: true
+    required: true,
+    validate: {
+      validator: function(v) {
+        return v.length === 2 && 
+               v[0] >= -180 && v[0] <= 180 && 
+               v[1] >= -90 && v[1] <= 90;
+      },
+      message: 'Invalid coordinates'
+    }
   },
   address: {
     type: String,
@@ -28,69 +37,42 @@ const locationSchema = new mongoose.Schema({
 const artisanProfileSchema = new mongoose.Schema({
   businessName: {
     type: String,
-    required: [true, 'Business name is required']
+    required: true
   },
-  specialty: [{
-    type: String,
-    required: [true, 'At least one specialty is required']
-  }],
+  specialty: {
+    type: [String],
+    required: true
+  },
   experience: {
     type: Number,
-    required: [true, 'Years of experience is required']
+    required: true
   },
   bio: {
     type: String,
-    required: [true, 'Bio is required']
-  },
-  rating: {
-    type: Number,
-    default: 0,
-    min: 0,
-    max: 5
-  },
-  totalReviews: {
-    type: Number,
-    default: 0
+    required: true
   },
   location: {
     type: locationSchema,
-    required: [true, 'Location is required']
-  },
-  portfolio: [{
-    title: String,
-    description: String,
-    imageUrl: String,
-    createdAt: {
-      type: Date,
-      default: Date.now
-    }
-  }]
+    required: true
+  }
 });
 
 const userSchema = new mongoose.Schema({
   username: {
     type: String,
-    required: [true, 'Username is required'],
-    unique: true,
-    trim: true,
-    minlength: 3
-  },
-  email: {
-    type: String,
-    required: [true, 'Email is required'],
-    unique: true,
-    lowercase: true,
-    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please provide a valid email']
-  },
-  phoneNumber: {
-    type: String,
-    required: [true, 'Phone number is required'],
+    required: [true, 'Please provide a username'],
     unique: true,
     trim: true
   },
+  email: {
+    type: String,
+    required: [true, 'Please provide an email'],
+    unique: true,
+    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please provide a valid email']
+  },
   password: {
     type: String,
-    required: [true, 'Password is required'],
+    required: [true, 'Please provide a password'],
     minlength: 8,
     select: false
   },
@@ -99,110 +81,43 @@ const userSchema = new mongoose.Schema({
     enum: ['user', 'artisan'],
     required: true
   },
-  location: {
-    type: locationSchema,
-    required: function() {
-      return this.userType === 'user';
-    }
+  phoneNumber: {
+    type: String,
+    required: [true, 'Please provide a phone number']
   },
   artisanProfile: {
     type: artisanProfileSchema,
     required: function() {
       return this.userType === 'artisan';
     }
-  },
-  otp: {
-    code: String,
-    expiresAt: Date
-  },
-  isPhoneVerified: {
-    type: Boolean,
-    default: false
-  },
-  isEmailVerified: {
-    type: Boolean,
-    default: false
-  },
-  profileImage: {
-    type: String,
-    default: 'default.jpg'
-  },
-  isVerified: {
-    type: Boolean,
-    default: false
-  },
-  verificationToken: String,
-  verificationTokenExpires: Date,
-  resetPasswordToken: String,
-  resetPasswordExpires: Date,
-  createdAt: {
-    type: Date,
-    default: Date.now
-  },
-  lastActive: {
-    type: Date,
-    default: Date.now
   }
 }, {
-  timestamps: true,
-  toJSON: { virtuals: true },
-  toObject: { virtuals: true }
+  timestamps: true
 });
 
-userSchema.index({ 'artisanProfile.location': '2dsphere' });
-userSchema.index({ email: 1, username: 1 });
-userSchema.index({ phoneNumber: 1 });
+// Index for geospatial queries
+userSchema.index({ "artisanProfile.location": "2dsphere" });
 
-// Hash password before saving
+// Encrypt password using bcrypt
 userSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) return next();
-  
-  this.password = await bcrypt.hash(this.password, 12);
+  if (!this.isModified('password')) {
+    return next();
+  }
+  const salt = await bcrypt.genSalt(10);
+  this.password = await bcrypt.hash(this.password, salt);
   next();
 });
 
-// Update passwordChangedAt when password is modified
-userSchema.pre('save', function(next) {
-  if (!this.isModified('password') || this.isNew) return next();
-  
-  this.passwordChangedAt = Date.now() - 1000;
-  next();
-});
+// Sign JWT and return
+userSchema.methods.getSignedJwtToken = function() {
+  return jwt.sign({ id: this._id }, process.env.JWT_SECRET, {
+    expiresIn: process.env.JWT_EXPIRE || '30d'
+  });
+};
 
-// Only find active users
-userSchema.pre(/^find/, function(next) {
-  this.find({ active: { $ne: false } });
-  next();
-});
-
-// Instance methods
+// Match user entered password to hashed password in database
 userSchema.methods.matchPassword = async function(enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
-};
-
-userSchema.methods.changedPasswordAfter = function(JWTTimestamp) {
-  if (this.passwordChangedAt) {
-    const changedTimestamp = parseInt(this.passwordChangedAt.getTime() / 1000, 10);
-    return JWTTimestamp < changedTimestamp;
-  }
-  return false;
-};
-
-userSchema.methods.generateOTP = function() {
-  const otp = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit OTP
-  this.otp = {
-    code: otp,
-    expiresAt: new Date(Date.now() + 10 * 60 * 1000) // 10 minutes expiry
-  };
-  return otp;
-};
-
-userSchema.methods.verifyOTP = function(code) {
-  return (
-    this.otp &&
-    this.otp.code === code &&
-    this.otp.expiresAt > new Date()
-  );
 };
 
 module.exports = mongoose.model('User', userSchema);

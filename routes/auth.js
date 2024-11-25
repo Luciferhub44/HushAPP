@@ -1,17 +1,20 @@
 const express = require('express');
-const authService = require('../services/authService');
-const { protect } = require('../middleware/auth');
-
 const router = express.Router();
+const authService = require('../services/authService');
+const { validateRegister } = require('../middleware/validate');
 
-router.post('/register', async (req, res, next) => {
+// @route   POST /api/auth/register
+// @desc    Register user
+// @access  Public
+router.post('/register', validateRegister, async (req, res, next) => {
   try {
-    const user = await authService.register(req.body);
+    const { user, token } = await authService.register(req.body);
+    
     res.status(201).json({
-      success: true,
-      message: 'Registration successful. Please verify your phone number and email.',
+      status: 'success',
       data: {
-        userId: user._id
+        user,
+        token
       }
     });
   } catch (err) {
@@ -19,14 +22,20 @@ router.post('/register', async (req, res, next) => {
   }
 });
 
+// @route   POST /api/auth/login
+// @desc    Login user
+// @access  Public
 router.post('/login', async (req, res, next) => {
   try {
-    const { phoneNumber, password } = req.body;
-    const { token, user } = await authService.login(phoneNumber, password);
+    const { email, password } = req.body;
+    const { user, token } = await authService.login(email, password);
+    
     res.status(200).json({
-      success: true,
-      token,
-      data: { user }
+      status: 'success',
+      data: { 
+        user,
+        token
+      }
     });
   } catch (err) {
     next(err);

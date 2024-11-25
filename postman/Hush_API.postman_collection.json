@@ -1,0 +1,106 @@
+{
+  "info": {
+    "_postman_id": "your-postman-id",
+    "name": "Hush API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register User",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const timestamp = Date.now();",
+                  "pm.environment.set('random_username', `user_${timestamp}`);",
+                  "pm.environment.set('random_email', `user_${timestamp}@example.com`);",
+                  "pm.environment.set('random_password', `Test${timestamp}!@#`);",
+                  "pm.environment.set('random_phone', `+1${Math.floor(Math.random() * 9000000000) + 1000000000}`);",
+                  ""
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"username\": \"{{random_username}}\",\n    \"email\": \"{{random_email}}\",\n    \"password\": \"{{random_password}}\",\n    \"userType\": \"user\",\n    \"phoneNumber\": \"{{random_phone}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "register"]
+            }
+          }
+        },
+        {
+          "name": "Register Artisan",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const timestamp = Date.now();",
+                  "const lat = 40.730610 + (Math.random() - 0.5) * 0.1;",
+                  "const lng = -73.935242 + (Math.random() - 0.5) * 0.1;",
+                  "",
+                  "pm.environment.set('random_artisan_username', `artisan_${timestamp}`);",
+                  "pm.environment.set('random_artisan_email', `artisan_${timestamp}@example.com`);",
+                  "pm.environment.set('random_artisan_password', `Test${timestamp}!@#`);",
+                  "pm.environment.set('random_artisan_phone', `+1${Math.floor(Math.random() * 9000000000) + 1000000000}`);",
+                  "pm.environment.set('random_business_name', `Service Pro ${timestamp}`);",
+                  "pm.environment.set('random_coordinates', JSON.stringify([lng, lat]));",
+                  "pm.environment.set('random_experience', Math.floor(Math.random() * 20) + 1);",
+                  ""
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"username\": \"{{random_artisan_username}}\",\n    \"email\": \"{{random_artisan_email}}\",\n    \"password\": \"{{random_artisan_password}}\",\n    \"userType\": \"artisan\",\n    \"phoneNumber\": \"{{random_artisan_phone}}\",\n    \"artisanProfile\": {\n        \"businessName\": \"{{random_business_name}}\",\n        \"specialty\": [\"Plumbing\", \"General Repairs\"],\n        \"experience\": {{random_experience}},\n        \"bio\": \"Professional with {{random_experience}} years of experience\",\n        \"location\": {\n            \"coordinates\": {{random_coordinates}},\n            \"address\": \"123 Test St\",\n            \"city\": \"Test City\",\n            \"state\": \"Test State\"\n        }\n    }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "register"]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Global variables can be set here",
+          "pm.environment.set('baseUrl', 'http://localhost:5000');"
+        ]
+      }
+    }
+  ]
+} 

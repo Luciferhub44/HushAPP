@@ -28,6 +28,7 @@ const notificationRoutes = require('./routes/notifications');
 const paymentRoutes = require('./routes/payments');
 const payoutRoutes = require('./routes/payouts');
 const disputeRoutes = require('./routes/disputes');
+const authRoutes = require('./routes/auth');
 
 const app = express();
 
@@ -41,15 +42,31 @@ process.on('uncaughtException', (err) => {
 // Trust proxy - Add this before other middleware
 app.set('trust proxy', 1);
 
-// Security Middleware
+// Body parser - Keep only one instance
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
-app.use(helmet()); // Set security HTTP headers
-app.use(mongoSanitize()); // Data sanitization against NoSQL query injection
-app.use(xss()); // Data sanitization against XSS
-app.use(hpp()); // Prevent parameter pollution
+
+// Security Middleware
+app.use(helmet());
+app.use(mongoSanitize());
+app.use(xss());
+app.use(hpp());
 app.use(logger);
-app.use(corsMiddleware);
+
+// CORS - Remove corsMiddleware and keep the detailed configuration
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production' 
+    ? process.env.CORS_ORIGIN 
+    : '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  exposedHeaders: ['set-cookie']
+}));
+
+// Static files - Consolidate
+app.use('/admin', express.static(path.join(__dirname, 'public/admin')));
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Rate limiting
 const { authLimiter, apiLimiter } = require('./middleware/rateLimiter');
@@ -81,7 +98,10 @@ app.use(cors({
 // Compression middleware
 app.use(compression());
 
-// Add a base API route and group all routes under it
+// Mount auth routes BEFORE the API router
+app.use('/api/auth', authRoutes);
+
+// Then mount other routes
 const apiRouter = express.Router();
 app.use('/api', apiRouter);
 
@@ -93,9 +113,6 @@ apiRouter.use('/notifications', notificationRoutes);
 apiRouter.use('/payments', paymentRoutes);
 apiRouter.use('/payouts', payoutRoutes);
 apiRouter.use('/disputes', disputeRoutes);
-
-// Serve static files for admin panel BEFORE admin routes
-app.use('/admin', express.static(path.join(__dirname, 'public/admin')));
 
 // Mount admin routes AFTER static files
 app.use('/admin/api', adminRouter);
@@ -163,9 +180,6 @@ const io = socketInit.initializeSocket(server);
 const SocketHandler = require('./utils/socketHandler');
 const socketHandler = new SocketHandler(io);
 socketHandler.initialize();
-
-// Serve static files
-app.use(express.static(path.join(__dirname, 'public')));
 
 // Export only what's needed
 module.exports = { app, server, io };
